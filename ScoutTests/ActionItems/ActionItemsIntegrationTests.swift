@@ -63,8 +63,9 @@ struct ActionItemsIntegrationTests {
         Issue.record("Comment never appeared in reparsed document; final state: \(service.state)")
     }
 
-    /// Probe common install paths (mirroring the candidates EngineLocator
-    /// discovers) and fall back to PATH via `/usr/bin/env which scoutctl`.
+    /// Probe common install paths (mirroring the legacy candidates `AppState`
+    /// probed before `EngineLocator` existed) and fall back to PATH via
+    /// `/usr/bin/env which scoutctl`.
     private static func findScoutctl() -> URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates: [URL] = [
