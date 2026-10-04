@@ -144,7 +144,40 @@ nonisolated struct KBIndex: Equatable {
     let outByFile: [String: [String]]
     let textByFile: [String: String]
     let typeByFile: [String: String]
-    static let empty = KBIndex(stemToPath: [:], outByFile: [:], textByFile: [:], typeByFile: [:])
+    /// Lowercased names of every non-hidden file under the vault root (`.md`
+    /// by stem, others by full name). Lets the dangling check tell a link to
+    /// a vault file outside the KB from a genuinely missing note.
+    let vaultNames: Set<String>
+    static let empty = KBIndex(stemToPath: [:], outByFile: [:], textByFile: [:], typeByFile: [:],
+                               vaultNames: [])
+}
+
+extension KBIndex {
+    /// The lookup key for a `[[target]]`: any `#heading` / `#^block` anchor
+    /// and a trailing `.md` removed, trimmed, lowercased.
+    nonisolated static func linkKey(_ target: String) -> String {
+        var key = target
+        if let hash = key.firstIndex(of: "#") { key = String(key[..<hash]) }
+        key = key.trimmingCharacters(in: .whitespaces).lowercased()
+        if key.hasSuffix(".md") { key.removeLast(3) }
+        return key
+    }
+
+    /// Resolve a `[[target]]` written in `source` to a note path, following
+    /// Obsidian for the forms the vault uses: a bare stem (`[[alex]]`), a
+    /// path matched as a suffix of the note's path (`[[people/alex]]`), a
+    /// heading/block anchor (`[[alex#Role]]`; `[[#Role]]` is `source`
+    /// itself) and an explicit `.md`. Nil when nothing matches.
+    func resolve(_ target: String, from source: String? = nil) -> String? {
+        let key = Self.linkKey(target)
+        if key.isEmpty {
+            return target.trimmingCharacters(in: .whitespaces).hasPrefix("#") ? source : nil
+        }
+        guard let slash = key.lastIndex(of: "/") else { return stemToPath[key] }
+        guard let path = stemToPath[String(key[key.index(after: slash)...])] else { return nil }
+        let bare = (path.lowercased() as NSString).deletingPathExtension
+        return bare == key || bare.hasSuffix("/" + key) ? path : nil
+    }
 }
 
 // MARK: - Network stats

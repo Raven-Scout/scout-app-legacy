@@ -194,7 +194,7 @@ final class KnowledgeBaseService: ObservableObject {
             typeByFile[file.relativePath] = frontmatterType(text)
         }
         return KBIndex(stemToPath: stemToPath, outByFile: outByFile,
-                       textByFile: textByFile, typeByFile: typeByFile)
+                       textByFile: textByFile, typeByFile: typeByFile, vaultNames: [])
     }
 
     /// The `type:` value from a note's leading YAML frontmatter (lowercased),
@@ -230,16 +230,17 @@ final class KnowledgeBaseService: ObservableObject {
         return result
     }
 
-    /// Resolve a wikilink target (e.g. `atlas`, possibly with spaces) to a
-    /// repo-relative path, or nil if no matching note exists.
+    /// Resolve a wikilink target (e.g. `atlas`, `people/atlas`, `atlas#Notes`,
+    /// possibly with spaces) to a repo-relative path, or nil if no matching
+    /// note exists. See `KBIndex.resolve(_:from:)`.
     func resolveWikilink(_ target: String) -> String? {
-        index.stemToPath[target.lowercased()]
+        index.resolve(target)
     }
 
     /// Outgoing links of a note, each with its resolved target (nil = dangling).
     func outgoingLinks(for relPath: String) -> [KBLink] {
         (index.outByFile[relPath] ?? []).map {
-            KBLink(target: $0, resolved: index.stemToPath[$0.lowercased()])
+            KBLink(target: $0, resolved: index.resolve($0, from: relPath))
         }
     }
 
@@ -250,7 +251,7 @@ final class KnowledgeBaseService: ObservableObject {
         var results: [KBBacklink] = []
         for (from, targets) in index.outByFile {
             guard from != relPath else { continue }
-            guard targets.contains(where: { index.stemToPath[$0.lowercased()] == relPath }) else { continue }
+            guard targets.contains(where: { index.resolve($0, from: from) == relPath }) else { continue }
             let excerpt = Self.excerpt(in: index.textByFile[from] ?? "", mentioning: targetStem)
             results.append(KBBacklink(path: from,
                                       name: KBNode.displayName(forPath: from),
@@ -260,9 +261,11 @@ final class KnowledgeBaseService: ObservableObject {
     }
 
     private static func excerpt(in text: String, mentioning stem: String) -> String {
-        let needle = "[[" + stem
-        let line = text.components(separatedBy: "\n")
-            .first { $0.lowercased().contains(needle) }
+        let needles = ["[[" + stem, "/" + stem + "]]", "/" + stem + "|", "/" + stem + "\\|", "/" + stem + "#"]
+        let line = text.components(separatedBy: "\n").first { line in
+            let lower = line.lowercased()
+            return needles.contains { lower.contains($0) }
+        }
         return (line ?? "").trimmingCharacters(in: .whitespaces).prefix(140).description
     }
 
@@ -272,7 +275,7 @@ final class KnowledgeBaseService: ObservableObject {
         var edgeSet = Set<KBGraphEdge>()
         for (from, targets) in index.outByFile {
             for t in targets {
-                guard let to = index.stemToPath[t.lowercased()], to != from else { continue }
+                guard let to = index.resolve(t, from: from), to != from else { continue }
                 let (a, b) = from < to ? (from, to) : (to, from)
                 edgeSet.insert(KBGraphEdge(from: a, to: b))
             }
@@ -376,7 +379,7 @@ final class KnowledgeBaseService: ObservableObject {
         // per note, so each (source, target) appears once.
         var dangling: [KBDanglingLink] = []
         for (source, targets) in index.outByFile {
-            for t in targets where index.stemToPath[t.lowercased()] == nil {
+            for t in targets where index.resolve(t, from: source) == nil {
                 dangling.append(KBDanglingLink(source: source, target: t))
             }
         }
