@@ -63,7 +63,7 @@ struct KBNetworkStats {
 Computation (all over `tree.flatMap(\.allFiles)` md notes + adjacency built from `undirectedEdges()`):
 - **adjacency** comes from one small `private static` helper, which `localGraph(around:)` also switches to. That is the "single degree/adjacency source" this spec promises, so the two paths can't drift.
 - **degree(path)** = adjacency neighbour count. `orphans` = degree 0; `weaklyLinked` = degree 1.
-- **dangling** = for each `(source, targets)` in `index.outByFile`, each `target` whose `stemToPath[target.lowercased()]` is nil (skip self). Reuses the same resolution `outgoingLinks` already does per-note.
+- **dangling** = for each `(source, targets)` in `index.outByFile`, each `target` that doesn't resolve. *Superseded by "Amendment 2026-10-04": resolution goes through the shared `KBIndex.resolve`, and ticket ids and vault files outside the KB are excluded.* Reuses the same resolution `outgoingLinks` already does per-note.
 - **components** = BFS/union-find over adjacency across *all* md notes (a degree-0 note is its own singleton component). Partition: the largest component is the "mainland"; `islands` = other components with size ≥ 2; singleton components are the `orphans` (already captured). `clusterCount` = count of components with size ≥ 2; `largestComponentSize` = size of the biggest.
 - **topHubs** = notes sorted by degree desc (id asc tiebreak), capped at 20; `avgDegree` = 2·|edges| / |notes|; `maxDegree` = max degree.
 - **byType** = count of md notes per `KBEntityGroup.of(path, type:)`, all 7 groups (0s included).
@@ -122,6 +122,24 @@ Pure-logic Swift Testing tests over a small on-disk fixture (`@MainActor @Suite`
 
 - Time/staleness metrics; directed-graph centrality; auto-fix actions; plotted histograms.
 - `fullGraph()` keeps its own degree map. Moving it onto the shared adjacency helper is a no-behavior-change cleanup this feature doesn't need.
+
+## Amendment 2026-10-04 — real-vault findings (approved by Jordan in chat)
+
+Running the implemented engine over the real vault (478 notes) returned **6,289 "dangling" links**, and most of them were not broken:
+
+| Links | Form | Actually broken? |
+|---:|---|---|
+| 2,389 | `[[folder/note]]` path link to a note that exists | No. The resolver only knew bare stems, so these were **also missing from edges, backlinks and the map** (pre-existing gap) |
+| 1,864 | `[[PROJ-1234]]` ticket ids | No. Ids linked by convention |
+| 1,521 | links to vault files outside `knowledge-base/` (e.g. action-items dailies) | No. Obsidian resolves them; the KB index can't see them |
+| 394 | `[[people/name]]` with no such note | **Yes** |
+| 121 | `[[#heading]]`, `[[note#heading]]`, `[[note.md]]` | No |
+
+Decisions:
+
+1. **One shared resolver, used everywhere** (`resolveWikilink`, `outgoingLinks`, `backlinks`, `undirectedEdges`, `networkStats`). `KBIndex.resolve(_:from:)` strips a `#heading` / `#^block` anchor and a trailing `.md`. A bare `[[#heading]]` resolves to the linking note itself. `[[folder/note]]` resolves when the stem's note path ends with `/folder/note` (Obsidian's path-suffix rule). Backlink excerpts also find path-form mentions. Effect: about 2,400 previously dropped links now count as edges, so the connection total, map and backlinks all grow.
+2. **Dangling = truly missing.** A link is dangling only if it (a) doesn't resolve, (b) isn't a ticket id (`^[A-Z][A-Z0-9]{1,9}-\d+$`), and (c) doesn't name a file elsewhere in the vault. For (c), `KBIndex` carries `vaultNames`: lowercased names of every non-hidden file under `~/Scout` (`.md` by stem, others by full name). It is collected during the existing off-main reparse as **a filename listing only, with no file reads**. This is a deliberate, small exception to "no new disk I/O".
+3. **`networkStats()` is memoized per reparse.** The cache is keyed by a generation counter bumped whenever `tree`/`index` change. Measured on the real vault in Debug, the pass cost about 78 ms against 14 ms for `graphStats()`, on every overview body eval.
 
 ## Revalidation 2026-10-03
 
