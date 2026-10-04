@@ -17,6 +17,16 @@ struct CommentAuthorTests {
         ("sam.dev_2", "sam.dev_2"),
         ("", "user"),
         ("!!!", "user"),
+        // Letters that are not accented forms, and other scripts, are
+        // transliterated rather than dropped.
+        ("Priya Łaz", "Priya-Laz"),
+        ("Sam Øby", "Sam-Oby"),
+        ("Straße", "Strasse"),
+        ("Ælex", "AElex"),
+        ("李雷", "li-lei"),
+        ("😀", "user"),
+        // A run of spaces and dashes is one separator.
+        ("Alex - Rivera", "Alex-Rivera"),
     ]
 
     @Test(arguments: handles)
@@ -26,7 +36,7 @@ struct CommentAuthorTests {
 
     /// What the app writes, its own parser reads back with the same author,
     /// instead of `scout` with the name glued onto the text.
-    @Test(arguments: ["alex", "Alex Rivera", "Zoë"])
+    @Test(arguments: ["alex", "Alex Rivera", "Zoë", "Priya Łaz", "李雷"])
     func aWrittenCommentParsesBackWithItsAuthor(_ name: String) throws {
         let handle = CommentAuthor.handle(name)
         let md = """
@@ -51,5 +61,12 @@ struct CommentAuthorTests {
         #expect(CommentAuthor.isOwn(commentAuthor: "Alex-Rivera", userName: "Alex Rivera"))
         #expect(CommentAuthor.isOwn(commentAuthor: "user", userName: ""))
         #expect(!CommentAuthor.isOwn(commentAuthor: "scout", userName: "Alex Rivera"))
+    }
+
+    /// Inline `//==<< … >>==//` comments carry the raw Settings name, not the
+    /// handle, and are still the user's own.
+    @Test func inlineCommentsByTheRawNameAreOwn() {
+        #expect(CommentAuthor.isOwn(commentAuthor: "alex rivera", userName: "Alex Rivera"))
+        #expect(!CommentAuthor.isOwn(commentAuthor: "priya", userName: "Alex Rivera"))
     }
 }
