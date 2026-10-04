@@ -315,6 +315,31 @@ struct TaskCardView: View {
 
     // MARK: - Expanded detail
 
+    // Typed properties rather than inline `cond ? nil : { … }` ternaries:
+    // Xcode 26.3 (CI) can't type-check those inside the detail VStack.
+    private var editCommentHandler: ((Int, String) async -> Void)? {
+        guard Self.canComment(task) else { return nil }
+        return { index, newText in
+            await runOp(.editComment(
+                subject: task.matchableSubject,
+                shortPrefix: task.shortPrefix,
+                selector: .index(index),
+                newText: newText
+            ))
+        }
+    }
+
+    private var deleteCommentHandler: ((Int) async -> Void)? {
+        guard Self.canComment(task) else { return nil }
+        return { index in
+            await runOp(.deleteComment(
+                subject: task.matchableSubject,
+                shortPrefix: task.shortPrefix,
+                selector: .index(index)
+            ))
+        }
+    }
+
     private var detail: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !task.body.isEmpty {
@@ -326,21 +351,8 @@ struct TaskCardView: View {
                 // so they follow the same rule.
                 CommentListView(
                     comments: task.comments,
-                    onEdit: !Self.canComment(task) ? nil : { index, newText in
-                        await runOp(.editComment(
-                            subject: task.matchableSubject,
-                            shortPrefix: task.shortPrefix,
-                            selector: .index(index),
-                            newText: newText
-                        ))
-                    },
-                    onDelete: !Self.canComment(task) ? nil : { index in
-                        await runOp(.deleteComment(
-                            subject: task.matchableSubject,
-                            shortPrefix: task.shortPrefix,
-                            selector: .index(index)
-                        ))
-                    }
+                    onEdit: editCommentHandler,
+                    onDelete: deleteCommentHandler
                 )
             }
 
