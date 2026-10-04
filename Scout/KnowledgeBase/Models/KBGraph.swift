@@ -146,3 +146,48 @@ nonisolated struct KBIndex: Equatable {
     let typeByFile: [String: String]
     static let empty = KBIndex(stemToPath: [:], outByFile: [:], textByFile: [:], typeByFile: [:])
 }
+
+// MARK: - Network stats
+
+/// An outgoing `[[target]]` that resolves to no note.
+nonisolated struct KBDanglingLink: Identifiable, Equatable {
+    let source: String     // note holding the broken link (relative path)
+    let target: String     // unresolved [[target]] text, original case
+    var id: String { source + "→" + target }
+}
+
+nonisolated struct KBHub: Identifiable, Equatable {
+    let path: String
+    let degree: Int
+    var id: String { path }
+}
+
+nonisolated struct KBTypeCount: Identifiable, Equatable {
+    let group: KBEntityGroup
+    let count: Int
+    var id: KBEntityGroup { group }
+}
+
+/// Whole-KB network analysis for the overview: totals, actionable health
+/// signals, and read-only connectivity insight. Computed in one pass over the
+/// index + edges by `KnowledgeBaseService.networkStats()`.
+nonisolated struct KBNetworkStats: Equatable {
+    let noteCount: Int
+    let linkCount: Int
+    let orphans: [String]                // degree 0, path asc
+    let weaklyLinked: [String]           // degree exactly 1, path asc
+    let dangling: [KBDanglingLink]       // source asc, then target asc
+    let islands: [[String]]              // components of size >= 2 except the largest
+    let topHubs: [KBHub]                 // degree desc, path asc; degree > 0; capped
+    let avgDegree: Double
+    let maxDegree: Int
+    let byType: [KBTypeCount]            // every KBEntityGroup, in allCases order, 0s included
+    let clusterCount: Int                // components with size >= 2
+    let largestComponentSize: Int
+
+    static let empty = KBNetworkStats(
+        noteCount: 0, linkCount: 0, orphans: [], weaklyLinked: [], dangling: [], islands: [],
+        topHubs: [], avgDegree: 0, maxDegree: 0,
+        byType: KBEntityGroup.allCases.map { KBTypeCount(group: $0, count: 0) },
+        clusterCount: 0, largestComponentSize: 0)
+}

@@ -358,6 +358,74 @@ final class KnowledgeBaseService: ObservableObject {
         fullGraph().topHubs(maxNodes: maxNodes)
     }
 
+    /// One-pass network analysis for the overview: totals, orphans /
+    /// weakly-linked / dangling / islands (health) and hubs / degree /
+    /// per-type / components (insight). Reads only the in-memory index + edges.
+    func networkStats(hubCap: Int = 20) -> KBNetworkStats {
+        let notes = tree.flatMap(\.allFiles).filter { $0.ext == "md" }.map(\.relativePath)
+        guard !notes.isEmpty else { return .empty }
+        let edgeSet = undirectedEdges()
+        let adj = Self.adjacency(of: edgeSet)
+        let degree: (String) -> Int = { adj[$0]?.count ?? 0 }
+
+        // Health: orphans / weakly-linked.
+        let orphans = notes.filter { degree($0) == 0 }.sorted()
+        let weaklyLinked = notes.filter { degree($0) == 1 }.sorted()
+
+        // Health: dangling links. `extractWikilinks` already de-dups targets
+        // per note, so each (source, target) appears once.
+        var dangling: [KBDanglingLink] = []
+        for (source, targets) in index.outByFile {
+            for t in targets where index.stemToPath[t.lowercased()] == nil {
+                dangling.append(KBDanglingLink(source: source, target: t))
+            }
+        }
+        dangling.sort { $0.source != $1.source ? $0.source < $1.source : $0.target < $1.target }
+
+        // Connected components (iterative DFS). Each is sorted, then ranked by
+        // size desc and first path asc so the mainland is stable on ties.
+        var seen = Set<String>()
+        var components: [[String]] = []
+        for start in notes where !seen.contains(start) {
+            var comp: [String] = []
+            var stack = [start]
+            seen.insert(start)
+            while let node = stack.popLast() {
+                comp.append(node)
+                for nb in adj[node] ?? [] where !seen.contains(nb) {
+                    seen.insert(nb)
+                    stack.append(nb)
+                }
+            }
+            components.append(comp.sorted())
+        }
+        components.sort { $0.count != $1.count ? $0.count > $1.count : $0[0] < $1[0] }
+        let clusters = components.filter { $0.count >= 2 }
+
+        // Insight: degree summary, hubs, per-type.
+        let topHubs = notes
+            .filter { degree($0) > 0 }
+            .sorted { degree($0) != degree($1) ? degree($0) > degree($1) : $0 < $1 }
+            .prefix(hubCap)
+            .map { KBHub(path: $0, degree: degree($0)) }
+        var counts: [KBEntityGroup: Int] = [:]
+        for n in notes { counts[KBEntityGroup.of(n, type: index.typeByFile[n]), default: 0] += 1 }
+
+        return KBNetworkStats(
+            noteCount: notes.count,
+            linkCount: edgeSet.count,
+            orphans: orphans,
+            weaklyLinked: weaklyLinked,
+            dangling: dangling,
+            islands: Array(clusters.dropFirst()),
+            topHubs: Array(topHubs),
+            avgDegree: Double(2 * edgeSet.count) / Double(notes.count),
+            maxDegree: notes.map(degree).max() ?? 0,
+            byType: KBEntityGroup.allCases.map { KBTypeCount(group: $0, count: counts[$0] ?? 0) },
+            clusterCount: clusters.count,
+            largestComponentSize: components.first?.count ?? 0)
+    }
+
     /// Full-text search across note names and contents (from the index's cached
     /// text — no disk reads), returning a snippet for the first matching line.
     /// Capped at 30 hits.

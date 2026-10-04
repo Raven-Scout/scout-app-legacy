@@ -1,0 +1,112 @@
+import Foundation
+import Testing
+@testable import Scout
+
+@MainActor
+@Suite("KnowledgeBaseService networkStats")
+struct KBNetworkStatsTests {
+    /// Write `files` (name → body) into a fresh `<tmp>/knowledge-base/`.
+    private func makeKB(_ files: [String: String]) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kbstats-\(UUID().uuidString)")
+        let kb = root.appendingPathComponent("knowledge-base")
+        try FileManager.default.createDirectory(at: kb, withIntermediateDirectories: true)
+        for (name, body) in files {
+            try body.write(to: kb.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        return root
+    }
+
+    /// A 4-note mainland (hub + 3 leaves, one linking back as `[[Hub]]`), a
+    /// 2-note island, one orphan, and one dangling link (sam → ghost).
+    private static let mainland: [String: String] = [
+        "hub.md": "[[alex]] [[priya]] [[sam]]",
+        "alex.md": "[[Hub]]",                  // case variant — resolves, not dangling
+        "priya.md": "[[hub]]",
+        "sam.md": "[[hub]] [[ghost]]",         // ghost has no note → dangling
+        "island-a.md": "[[island-b]]",
+        "island-b.md": "[[island-a]]",
+        "lonely.md": "no links here",          // orphan
+    ]
+
+    private func load(_ files: [String: String]) async throws -> (KnowledgeBaseService, URL) {
+        let root = try makeKB(files)
+        let svc = KnowledgeBaseService(scoutDirectory: root, fileEvents: NoopFS())
+        await svc.reparseAndWait()
+        return (svc, root)
+    }
+
+    private func stats(_ files: [String: String], hubCap: Int = 20) async throws -> KBNetworkStats {
+        let (svc, root) = try await load(files)
+        defer { try? FileManager.default.removeItem(at: root) }
+        return svc.networkStats(hubCap: hubCap)
+    }
+
+    @Test func orphansAndWeaklyLinked() async throws {
+        let s = try await stats(Self.mainland)
+        #expect(s.orphans == ["knowledge-base/lonely.md"])
+        #expect(s.weaklyLinked == [
+            "knowledge-base/alex.md", "knowledge-base/island-a.md", "knowledge-base/island-b.md",
+            "knowledge-base/priya.md", "knowledge-base/sam.md",
+        ])
+    }
+
+    @Test func danglingLinkDetectedAndCaseVariantResolves() async throws {
+        let s = try await stats(Self.mainland)
+        #expect(s.dangling == [KBDanglingLink(source: "knowledge-base/sam.md", target: "ghost")])
+    }
+
+    @Test func islandsExcludeMainlandAndOrphan() async throws {
+        let s = try await stats(Self.mainland)
+        #expect(s.islands == [["knowledge-base/island-a.md", "knowledge-base/island-b.md"]])
+        #expect(s.largestComponentSize == 4)                       // hub + 3 leaves
+        #expect(s.clusterCount == 2)                               // mainland + island
+    }
+
+    @Test func equalSizeComponentsPickTheMainlandDeterministically() async throws {
+        let s = try await stats([
+            "duo-a.md": "[[duo-b]]", "duo-b.md": "",
+            "duo-c.md": "[[duo-d]]", "duo-d.md": "",
+        ])
+        #expect(s.largestComponentSize == 2)
+        #expect(s.clusterCount == 2)
+        #expect(s.islands == [["knowledge-base/duo-c.md", "knowledge-base/duo-d.md"]])
+    }
+
+    @Test func hubsOrderedByDegreeThenPathAndCapped() async throws {
+        let s = try await stats(Self.mainland)
+        #expect(s.topHubs.map(\.path) == [
+            "knowledge-base/hub.md", "knowledge-base/alex.md", "knowledge-base/island-a.md",
+            "knowledge-base/island-b.md", "knowledge-base/priya.md", "knowledge-base/sam.md",
+        ])                                                         // lonely (degree 0) excluded
+        #expect(s.topHubs.first?.degree == 3)
+        let capped = try await stats(Self.mainland, hubCap: 2)
+        #expect(capped.topHubs.map(\.path) == ["knowledge-base/hub.md", "knowledge-base/alex.md"])
+    }
+
+    @Test func degreeSummaryAndTotals() async throws {
+        let (svc, root) = try await load(Self.mainland)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let s = svc.networkStats()
+        #expect(s.maxDegree == 3)
+        #expect(s.avgDegree == 8.0 / 7.0)                          // 2·4 edges / 7 notes
+        #expect(s.noteCount == 7)
+        #expect(s.linkCount == 4)
+        let legacy = svc.graphStats()
+        #expect(s.noteCount == legacy.notes)
+        #expect(s.linkCount == legacy.links)
+    }
+
+    @Test func byTypeCountsEveryNoteInEveryGroup() async throws {
+        let s = try await stats(Self.mainland)
+        #expect(s.byType.map(\.group) == KBEntityGroup.allCases)   // all groups, 0s included
+        #expect(s.byType.reduce(0) { $0 + $1.count } == 7)
+    }
+
+    @Test func emptyVaultIsEmptyStats() async throws {
+        let s = try await stats([:])
+        #expect(s == .empty)
+        #expect(s.byType.count == KBEntityGroup.allCases.count)
+        #expect(s.byType.allSatisfy { $0.count == 0 })
+    }
+}
