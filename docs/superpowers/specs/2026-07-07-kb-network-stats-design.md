@@ -141,6 +141,16 @@ Decisions:
 2. **Dangling = truly missing.** A link is dangling only if it (a) doesn't resolve, (b) isn't a ticket id (`^[A-Z][A-Z0-9]{1,9}-\d+$`), and (c) doesn't name a file elsewhere in the vault. For (c), `KBIndex` carries `vaultNames`: lowercased names of every non-hidden file under `~/Scout` (`.md` by stem, others by full name). It is collected during the existing off-main reparse as **a filename listing only, with no file reads**. This is a deliberate, small exception to "no new disk I/O".
 3. **`networkStats()` is memoized per reparse.** The cache is keyed by a generation counter bumped whenever `tree`/`index` change. Measured on the real vault in Debug, the pass cost about 78 ms against 14 ms for `graphStats()`, on every overview body eval.
 
+**Final-review fix pass (same day).**
+- `KBIndex` keeps every note path per stem (`stemPaths`), so `[[people/alex]]` resolves even when another `alex.md` exists.
+- `KBIndex` resolves each target once and builds the edge set at construction time, off the main actor. Edges, backlinks, outgoing links and stats are now lookups.
+- `vaultNames` skips the KB's own `.md` notes, so a resolver miss such as a wrong-folder link shows as dangling instead of being masked.
+- The default-cap stats are computed inside the detached reparse and seed the cache. The first overview read went from about 192 ms to about 1 µs (Debug, real vault).
+- Backlink excerpts pick the first line whose wikilink actually resolves to the note.
+- "Show all" renders at most 200 more items, followed by "…and N more".
+
+Real vault after the fix pass: 3,927 links, 1,333 dangling, 21 orphans, 27 weakly linked, one cluster of 457.
+
 ## Revalidation 2026-10-03
 
 Re-checked against `main` @ `7a037c9` after features 1 and 2 shipped (#77, #90). What moved and what changed here:
