@@ -33,11 +33,20 @@ nonisolated struct TaskWindow: Equatable, Sendable {
     }
 
     /// How many rows the next ``showMore()`` adds, for the button label.
+    /// Measured rather than assumed to be a page: sub-task runs at either
+    /// boundary move the cut.
     func nextPageCount(in tasks: [ActionTask]) -> Int {
-        min(Self.pageSize, hiddenCount(in: tasks))
+        var next = self
+        next.showMore()
+        return next.visible(tasks).count - visible(tasks).count
     }
 
     mutating func showMore() {
         limit += Self.pageSize
+    }
+
+    /// Grows the window a page at a time until row `index` is built.
+    mutating func reveal(_ index: Int) {
+        while limit <= index { showMore() }
     }
 }
