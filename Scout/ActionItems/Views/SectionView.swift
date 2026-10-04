@@ -5,7 +5,15 @@ struct SectionView: View {
     let displayedDate: Date
     let scoutDirectory: URL
     let selection: Binding<Set<UUID>>?
+    /// How many of `section.tasks` to build. Owned by `ActionItemsView`, which
+    /// also needs it to keep Select all to the rows actually on screen.
+    let window: TaskWindow
+    let onShowMore: () -> Void
     let onOp: @MainActor (WriteOp, Int?) async throws -> Void
+
+    /// Per-archive windows. Local: archive rows are never selectable, so
+    /// nothing outside this view needs to know how many are shown.
+    @State private var archiveWindows: [UUID: TaskWindow] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -31,8 +39,10 @@ struct SectionView: View {
                 // The frame alignment below must stay .topLeading: a plain
                 // VStack hugs its widest child, so horizontal alignment is
                 // load-bearing where the width-greedy LazyVStack made it moot.
+                // Eager means every row costs layout time, so only a window of
+                // them is built — see `TaskWindow`.
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(section.tasks) { task in
+                    ForEach(window.visible(section.tasks)) { task in
                         TaskCardView(
                             task: task,
                             kind: section.kind,
@@ -42,6 +52,7 @@ struct SectionView: View {
                             onOp: onOp
                         )
                     }
+                    ShowMoreRow(window: window, tasks: section.tasks, action: onShowMore)
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(.top, 12)
@@ -71,9 +82,10 @@ struct SectionView: View {
     }
 
     private func archiveGroup(_ group: ActionSection.CollapsedGroup) -> some View {
-        DisclosureGroup {
+        let groupWindow = archiveWindows[group.id] ?? TaskWindow()
+        return DisclosureGroup {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(group.tasks) { task in
+                ForEach(groupWindow.visible(group.tasks)) { task in
                     TaskCardView(
                         task: task,
                         kind: section.kind,
@@ -89,6 +101,9 @@ struct SectionView: View {
                         selection: nil,
                         onOp: onOp
                     )
+                }
+                ShowMoreRow(window: groupWindow, tasks: group.tasks) {
+                    archiveWindows[group.id, default: TaskWindow()].showMore()
                 }
                 ForEach(Array(group.bullets.enumerated()), id: \.offset) { _, bullet in
                     InlineMarkdownText(bullet)

@@ -10,6 +10,9 @@ struct BoardView: View {
 
     /// Done starts collapsed; toggled per session.
     @State private var doneCollapsed = true
+    /// Rows built per column — the board lays cards out eagerly too, so a
+    /// column holding the whole backlog froze it the same way (see `TaskWindow`).
+    @State private var windows: [ActionSection.Kind: TaskWindow] = [:]
 
     private var columns: [ActionBoardColumn] {
         ActionBoardColumn.columns(from: sections)
@@ -42,8 +45,12 @@ struct BoardView: View {
                     .foregroundStyle(DS.Ink.p4)
                     .padding(.vertical, 8)
             } else {
-                ForEach(column.tasks) { task in
+                let window = windows[column.kind] ?? TaskWindow()
+                ForEach(window.visible(column.tasks)) { task in
                     BoardCardView(task: task, kind: column.kind)
+                }
+                ShowMoreRow(window: window, tasks: column.tasks) {
+                    windows[column.kind, default: TaskWindow()].showMore()
                 }
             }
         }

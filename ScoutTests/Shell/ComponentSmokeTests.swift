@@ -170,9 +170,34 @@ struct ComponentSmokeTests {
                     displayedDate: SmokeFixtures.day,
                     scoutDirectory: URL(fileURLWithPath: "/tmp/scout"),
                     selection: nil,
+                    window: TaskWindow(), onShowMore: {},
                     onOp: { _, _ in }),
                 size: cardSize)
         }
+    }
+
+    @Test("a section longer than a page renders its window and the show-more row")
+    func sectionRendersWindowedLongList() {
+        let tasks = (0..<(TaskWindow.pageSize * 2 + 3)).map {
+            SmokeFixtures.task(subject: "[#IOTA] Follow up with Sam \($0)")
+        }
+        var revealed = TaskWindow()
+        revealed.showMore()
+        for window in [TaskWindow(), revealed] {
+            ViewHost.render(
+                SectionView(
+                    section: SmokeFixtures.section(kind: .todo, tasks: tasks,
+                                                   collapsed: [SmokeFixtures.collapsedGroup()]),
+                    displayedDate: SmokeFixtures.day,
+                    scoutDirectory: URL(fileURLWithPath: "/tmp/scout"),
+                    selection: nil,
+                    window: window, onShowMore: {},
+                    onOp: { _, _ in }),
+                size: cardSize)
+        }
+        ViewHost.render(
+            BoardView(sections: [SmokeFixtures.section(kind: .todo, tasks: tasks)]),
+            size: cardSize)
     }
 
     @Test("a section renders bullets and tables")
@@ -186,6 +211,7 @@ struct ComponentSmokeTests {
                 displayedDate: SmokeFixtures.day,
                 scoutDirectory: URL(fileURLWithPath: "/tmp/scout"),
                 selection: nil,
+                window: TaskWindow(), onShowMore: {},
                 onOp: { _, _ in }),
             size: cardSize)
 
@@ -196,6 +222,7 @@ struct ComponentSmokeTests {
                 displayedDate: SmokeFixtures.day,
                 scoutDirectory: URL(fileURLWithPath: "/tmp/scout"),
                 selection: nil,
+                window: TaskWindow(), onShowMore: {},
                 onOp: { _, _ in }),
             size: cardSize)
     }

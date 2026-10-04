@@ -20,6 +20,9 @@ struct ActionItemsView: View {
     /// changes — never per body evaluation, and never per checkbox tap
     /// (#83/#88 hot path).
     @State private var visibleSelectableIDs: Set<UUID> = []
+    /// How many rows each section builds, keyed by section id (stable across
+    /// reparses, so a write keeps what "Show more" revealed). Reset per day.
+    @State private var windows: [UUID: TaskWindow] = [:]
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -92,6 +95,7 @@ struct ActionItemsView: View {
         .onAppear { load() }
         .onChange(of: displayedDate) { _, _ in
             endSelectionMode()
+            windows = [:]
             load()
         }
         .onChange(of: viewMode) { _, newValue in
@@ -168,9 +172,20 @@ struct ActionItemsView: View {
                 displayedDate: displayedDate,
                 scoutDirectory: scoutDirectory,
                 selection: isSelecting ? $selectedTaskIDs : nil,
+                window: window(for: section),
+                onShowMore: { showMore(in: section) },
                 onOp: handleOp
             )
         }
+    }
+
+    private func window(for section: ActionSection) -> TaskWindow {
+        windows[section.id] ?? TaskWindow()
+    }
+
+    private func showMore(in section: ActionSection) {
+        windows[section.id, default: TaskWindow()].showMore()
+        reconcileSelection()
     }
 
     // MARK: - Dateline (big serif header + meta on the right)
@@ -455,20 +470,25 @@ struct ActionItemsView: View {
     /// Tasks Select all operates on. Excludes the Done section: its rows sit
     /// inside a collapsed-by-default disclosure, and "select everything you
     /// can't see" contradicts the button's promise. Done tasks stay
-    /// individually selectable via their own checkboxes in the drawer.
+    /// individually selectable via their own checkboxes in the drawer. For the
+    /// same reason, rows past a section's window — never built, so never seen —
+    /// are left out.
     private var visibleSelectableTasks: [ActionTask] {
         guard case .loaded(let doc) = docService.state else { return [] }
         return filteredSections(doc)
             .map(filtered)
             .filter { ![.focus, .meetings, .digest, .done].contains($0.kind) }
-            .flatMap(\.tasks)
+            .flatMap { Array(window(for: $0).visible($0.tasks)) }
     }
 
     /// Every task the current filter/search leaves visible, including the
-    /// Done drawer — the widest set a selection is allowed to reference.
+    /// Done drawer (which shows all its rows) — the widest set a selection is
+    /// allowed to reference.
     private var visibleTaskIDs: Set<UUID> {
         guard case .loaded(let doc) = docService.state else { return [] }
-        return Set(filteredSections(doc).map(filtered).flatMap(\.tasks).map(\.id))
+        return Set(filteredSections(doc).map(filtered).flatMap { section in
+            section.kind == .done ? section.tasks[...] : window(for: section).visible(section.tasks)
+        }.map(\.id))
     }
 
     private var selectedTasks: [ActionTask] {
