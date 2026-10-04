@@ -109,6 +109,20 @@ struct KBNetworkStatsTests {
         #expect(s.byType.count == KBEntityGroup.allCases.count)
         #expect(s.byType.allSatisfy { $0.count == 0 })
     }
+
+    @Test func statsRecomputeAfterReparseAndPerHubCap() async throws {
+        let (svc, root) = try await load(Self.mainland)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let before = svc.networkStats()
+        #expect(svc.networkStats() == before)
+        try "[[lonely]]".write(to: root.appendingPathComponent("knowledge-base/fresh-note.md"),
+                               atomically: true, encoding: .utf8)
+        await svc.reparseAndWait()
+        let after = svc.networkStats()
+        #expect(after.noteCount == 8)
+        #expect(!after.orphans.contains("knowledge-base/lonely.md"))
+        #expect(svc.networkStats(hubCap: 1).topHubs.count == 1)    // hubCap is part of the key
+    }
 }
 
 @Suite("KBNetworkStats display strings")

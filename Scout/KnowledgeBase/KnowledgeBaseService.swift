@@ -17,11 +17,15 @@ final class KnowledgeBaseService: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var tree: [KBNode] = []
+    @Published private(set) var tree: [KBNode] = [] { didSet { generation &+= 1 } }
     @Published private(set) var state: State = .idle
     /// Wikilink graph index, rebuilt on every reparse. Powers backlinks,
     /// in-app wikilink navigation and the local graph.
-    @Published private(set) var index: KBIndex = .empty
+    @Published private(set) var index: KBIndex = .empty { didSet { generation &+= 1 } }
+
+    /// Bumped whenever `tree` or `index` is replaced; keys per-reparse caches.
+    private var generation = 0
+    private var networkStatsCache: (generation: Int, hubCap: Int, stats: KBNetworkStats)?
 
     /// The scout directory; the KB lives in its `knowledge-base/` subfolder.
     let scoutDirectory: URL
@@ -379,10 +383,19 @@ final class KnowledgeBaseService: ObservableObject {
         fullGraph().topHubs(maxNodes: maxNodes)
     }
 
-    /// One-pass network analysis for the overview: totals, orphans /
-    /// weakly-linked / dangling / islands (health) and hubs / degree /
-    /// per-type / components (insight). Reads only the in-memory index + edges.
+    /// One-pass network analysis for the overview, cached until the next
+    /// reparse (the overview evaluates it on every body pass).
     func networkStats(hubCap: Int = 20) -> KBNetworkStats {
+        if let c = networkStatsCache, c.generation == generation, c.hubCap == hubCap { return c.stats }
+        let stats = computeNetworkStats(hubCap: hubCap)
+        networkStatsCache = (generation, hubCap, stats)
+        return stats
+    }
+
+    /// Totals, orphans / weakly-linked / dangling / islands (health) and
+    /// hubs / degree / per-type / components (insight), in one pass. Reads
+    /// only the in-memory index + edges.
+    private func computeNetworkStats(hubCap: Int) -> KBNetworkStats {
         let notes = tree.flatMap(\.allFiles).filter { $0.ext == "md" }.map(\.relativePath)
         guard !notes.isEmpty else { return .empty }
         let edgeSet = undirectedEdges()
