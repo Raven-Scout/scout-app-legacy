@@ -7,6 +7,7 @@ import SwiftUI
 /// List view, which sidesteps the markdown-as-source mutation concerns in #10.
 struct BoardView: View {
     let sections: [ActionSection]
+    let scoutDirectory: URL
 
     /// Done starts collapsed; toggled per session.
     @State private var doneCollapsed = true
@@ -47,7 +48,7 @@ struct BoardView: View {
             } else {
                 let window = windows[column.kind] ?? TaskWindow()
                 ForEach(window.visible(column.tasks)) { task in
-                    BoardCardView(task: task, kind: column.kind)
+                    BoardCardView(task: task, kind: column.kind, scoutDirectory: scoutDirectory)
                 }
                 ShowMoreRow(window: window, tasks: column.tasks) {
                     windows[column.kind, default: TaskWindow()].showMore()

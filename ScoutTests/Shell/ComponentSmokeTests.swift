@@ -196,7 +196,8 @@ struct ComponentSmokeTests {
                 size: cardSize)
         }
         ViewHost.render(
-            BoardView(sections: [SmokeFixtures.section(kind: .todo, tasks: tasks)]),
+            BoardView(sections: [SmokeFixtures.section(kind: .todo, tasks: tasks)],
+                      scoutDirectory: URL(fileURLWithPath: "/tmp/scout")),
             size: cardSize)
     }
 
@@ -250,6 +251,26 @@ struct ComponentSmokeTests {
                             onEdit: { _, _ in }, onDelete: { _ in }),
             size: CGSize(width: 700, height: 300))
         ViewHost.render(CommentListView(comments: []), size: CGSize(width: 700, height: 80))
+    }
+
+    @Test("the comment composer renders")
+    func commentComposerRenders() {
+        ViewHost.render(
+            CommentComposerView(task: SmokeFixtures.task(), displayedDate: SmokeFixtures.day) { _ in },
+            size: CGSize(width: 700, height: 80))
+    }
+
+    @Test("an editorial action button renders in every style")
+    func editorialActionButtonRenders() {
+        ViewHost.render(
+            HStack {
+                EditorialActionButton("Send", style: .primary, shortcut: "⌘↵") {}
+                EditorialActionButton("Cancel") {}
+                EditorialActionButton("Add comment", systemImage: "text.bubble") {}
+                EditorialActionButton("Send", style: .primary) {}
+                    .disabled(true)
+            },
+            size: CGSize(width: 600, height: 60))
     }
 
     @Test("the snooze popover renders")
