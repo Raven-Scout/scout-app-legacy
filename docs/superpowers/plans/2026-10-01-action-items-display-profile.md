@@ -40,13 +40,13 @@ The service watches `scout-profile.json` directly, and the file usually does not
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `FileWatcherTests`:
+Append to `FileWatcherTests`. The tests use its `firstEvent(named:from:within:)` helper (#123), which waits for a named event with a liveness budget; it consumes the stream, so the replace is watched by a second stream:
 
 ```swift
     /// The display profile is watched by file path before the file exists.
-    /// FSEvents delivers its creation and an atomic replace, as long as the
-    /// watched path is the real one (temp directories sit under the `/var`
-    /// symlink, which FSEvents never matches).
+    /// FSEvents reports its creation and a later atomic replace, as long as
+    /// the watched path is the real one: temp directories sit under the `/var`
+    /// symlink, which FSEvents never matches.
     @Test func emitsEventsForAFileThatDoesNotExistYet() async throws {
         let tmp = try FileManager.default.url(
             for: .itemReplacementDirectory,
@@ -56,40 +56,24 @@ Append to `FileWatcherTests`:
         ).resolvingRealPath()
         defer { try? FileManager.default.removeItem(at: tmp) }
         let file = tmp.appendingPathComponent("scout-profile.json")
+        #expect(!FileManager.default.fileExists(atPath: file.path))
 
-        let stream = FileWatcher().events(for: file)
+        let beforeCreate = FileWatcher().events(for: file)
         try await Task.sleep(nanoseconds: 300_000_000)
+        try Data("{}".utf8).write(to: file, options: .atomic)
+        let created = await Self.firstEvent(named: file.lastPathComponent, from: beforeCreate, within: .seconds(30))
+        #expect(created != nil, "expected an event for the file's creation")
 
-        let names: [String] = await withTaskGroup(of: [String].self) { group in
-            group.addTask {
-                var seen: [String] = []
-                for await event in stream {
-                    seen.append(event.url.lastPathComponent)
-                    if seen.count >= 2 { break }
-                }
-                return seen
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
-                return []
-            }
-            Task {
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                try? Data("{}".utf8).write(to: file, options: .atomic)
-                try? await Task.sleep(nanoseconds: 600_000_000)
-                try? Data("{\"schema\":1}".utf8).write(to: file, options: .atomic)
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? []
-        }
-
-        #expect(names.count >= 2)
-        #expect(names.allSatisfy { $0 == "scout-profile.json" })
+        let beforeReplace = FileWatcher().events(for: file)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        try Data(#"{"schema":1}"#.utf8).write(to: file, options: .atomic)
+        let replaced = await Self.firstEvent(named: file.lastPathComponent, from: beforeReplace, within: .seconds(30))
+        #expect(replaced != nil, "expected an event for the atomic replace")
     }
 
     @Test func realPathResolvesTheVarSymlink() {
-        let url = URL(fileURLWithPath: "/var", isDirectory: true)
-        #expect(url.resolvingRealPath().path == "/private/var")
+        #expect(URL(fileURLWithPath: "/var", isDirectory: true).resolvingRealPath().path == "/private/var")
+        #expect(URL(fileURLWithPath: "/no/such/dir").resolvingRealPath().path == "/no/such/dir")
     }
 ```
 
@@ -763,6 +747,7 @@ Expected: FAIL, compile error `cannot find 'DisplayProfileService' in scope`.
 Create `Scout/Profile/DisplayProfileService.swift`:
 
 ```swift
+import Combine
 import Foundation
 import OSLog
 
@@ -1364,7 +1349,7 @@ Smoke additions: `TaskCardView` and `BoardCardView` rendered once with `.compact
 **Interfaces:**
 - `extension DisplayProfileService { func binding<V>(_ keyPath: WritableKeyPath<ActionItemsDisplay, V>) -> Binding<V> }` (in `ActionItemsDisplayMenu.swift`, imports SwiftUI).
 - `ActionItemsDisplayMenu` (toolbar), `ActionItemsDisplaySection` (Settings), both `@EnvironmentObject var service: DisplayProfileService`.
-- `nonisolated struct ActionItemsLayout: Equatable { let list: ActionItemsArrangement.Arranged; let boardSections: [ActionSection] }` with `static func make(document:filtered:display:) -> ActionItemsLayout`, where `filtered` is the consolidated and filtered sections `ActionItemsView` already computes.
+- `struct ActionItemsLayout: Equatable { let list: ActionItemsArrangement.Arranged; let boardColumns: [ActionBoardColumn] }` in `Scout/ActionItems/ActionItemsLayout.swift`, with `static func make(document:filtered:display:) -> ActionItemsLayout` (where `filtered` is the consolidated and filtered sections `ActionItemsView` already computes) and `static func isPassThrough(_:) -> Bool` (true for the default profile). It holds Board columns rather than sections because a column can mix tasks from several sections, and the sort applies across the column.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1380,6 +1365,7 @@ struct ActionItemsLayoutTests {
     @Test func aBindingWritesThroughUpdate() throws {
         let vault = FileManager.default.temporaryDirectory.appendingPathComponent("bind-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vault) }
         let service = DisplayProfileService(scoutDirectory: vault, fileEvents: InjectableFS())
         service.binding(\.fields.comments).wrappedValue = true
         #expect(service.profile.actionItems.fields.comments)
@@ -1395,23 +1381,33 @@ struct ActionItemsLayoutTests {
         display.grouping = .none
         let layout = ActionItemsLayout.make(document: [section], filtered: [section], display: display)
         #expect(layout.list.sections.map(\.kind) == [.neutral])
-        #expect(layout.boardSections.map(\.kind) == [.todo])
-        #expect(layout.boardSections[0].tasks.map(\.subject) == ["Ask Priya", "Book travel"])
+        let todo = layout.boardColumns.first { $0.kind == .todo }
+        #expect(todo?.tasks.map(\.subject) == ["Ask Priya", "Book travel"])
+    }
+
+    @Test func theDefaultProfileLeavesTheSectionsAlone() {
+        let sections = [SmokeFixtures.section(kind: .urgent), SmokeFixtures.section(kind: .todo)]
+        #expect(ActionItemsLayout.isPassThrough(ActionItemsDisplay()))
+        var sorted = ActionItemsDisplay()
+        sorted.sort = .alphabetical
+        #expect(!ActionItemsLayout.isPassThrough(sorted))
+        let layout = ActionItemsLayout.make(document: sections, filtered: sections, display: ActionItemsDisplay())
+        #expect(layout.list.sections == sections)
     }
 }
 ```
 
-- [ ] **Step 2: Run** `-only-testing:ScoutTests/ActionItemsLayoutTests`. Expected: FAIL, `cannot find 'ActionItemsLayout' in scope`.
+- [ ] **Step 2: Run** `-only-testing:ScoutTests/ActionItemsLayoutTests`. Expected: FAIL, `value of type 'DisplayProfileService' has no member 'binding'` and `cannot find 'ActionItemsLayout' in scope`.
 
 - [ ] **Step 3: Implementation notes**
 
-`ActionItemsLayout.make` computes `parents(in: document)` once, then the list arrangement (`sort` and `grouping`) and the board sections (`sort` only, grouping kept by section). It lives next to `ActionItemsArrangement`.
+`ActionItemsLayout.make` computes `parents(in: document)` once, then the list arrangement (`sort` and `grouping`) and the Board columns (`ActionBoardColumn.columns(from:sort:parents:)`, never merged).
 
 `ActionItemsView`:
 - remove `@SceneStorage("actionItemsView")`; add `@EnvironmentObject var displayProfile: DisplayProfileService` and `private var display: ActionItemsDisplay { displayProfile.profile.actionItems }`.
 - `EditorialSegmentedControl(selection: $displayProfile.currentView, ...)`; every `viewMode` read becomes `displayProfile.currentView`, including `.onChange(of:)`.
 - `ActionItemsDisplayMenu()` sits right after the segmented control.
-- **Cache:** `@State private var layout: ActionItemsLayout?`, recomputed by `relayout()` in `.onAppear` and in `.onChange` of `docService.state`, `filter` and `display`, next to the existing `reconcileSelection()` calls (`ActionItemsView.swift:105-106`). `loadedContent` renders `layout.list.sections` with `density`, `fields` and `kinds`; the board renders `ActionBoardColumn.columns(from: layout.boardSections)` through `BoardView(columns:density:fields:)`. Until the first `relayout()` the body falls back to `filteredSections(doc).map(filtered)`, which is today's path.
+- **Cache:** `@State private var layout: ActionItemsLayout?`, recomputed by `relayout()` in `.onAppear` and in `.onChange` of `docService.state`, `filter` and `display`, next to the existing `reconcileSelection()` calls (`ActionItemsView.swift:105-106`). With the default profile (`isPassThrough`) `relayout()` keeps no cache and the body renders `filteredSections(doc).map(filtered)` exactly as today. Otherwise `loadedContent` renders `layout.list.sections` with `density`, `fields` and `kinds`, and the board renders `layout.boardColumns` through `BoardView(columns:scoutDirectory:density:fields:)`.
 
 `ActionItemsDisplayMenu`: a `Menu` labelled `Label("View", systemImage: "slider.horizontal.3")` in `DS.sans(11.5, weight: .medium)`, `.menuStyle(.borderlessButton)`, `.fixedSize()`, with inline pickers for Sort, Group (List only), Density, and a "Show on cards" section of three toggles: References, Snooze date, Comment count.
 
