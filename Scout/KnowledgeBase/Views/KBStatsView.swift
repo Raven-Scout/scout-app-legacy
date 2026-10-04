@@ -8,6 +8,8 @@ struct KBStatsView: View {
     let onOpen: (String) -> Void
 
     private let topN = 5
+    /// Most items a "Show all" disclosure renders; the rest become a count.
+    private let expandCap = 200
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -58,11 +60,13 @@ struct KBStatsView: View {
                 chips(island.map(KBNode.displayName(forPath:)), island)
             }
             if stats.islands.count > topN {
+                let window = KBNetworkStats.disclosureWindow(count: stats.islands.count, topN: topN, cap: expandCap)
                 DisclosureGroup("Show all \(stats.islands.count)") {
-                    ForEach(Array(stats.islands.dropFirst(topN).enumerated()), id: \.offset) { _, island in
+                    ForEach(Array(stats.islands[window.shown].enumerated()), id: \.offset) { _, island in
                         chips(island.map(KBNode.displayName(forPath:)), island)
                     }
                     .padding(.top, 4)
+                    moreLine(window.hidden)
                 }
                 .font(DS.sans(11)).foregroundStyle(DS.Accent.ink)
             }
@@ -110,16 +114,25 @@ struct KBStatsView: View {
     }
 
     /// The first `topN` items as chips, plus a "Show all N" disclosure for the
-    /// rest. `labels[i]` is shown; `paths[i]` is opened.
+    /// rest (capped at `expandCap`). `labels[i]` is shown; `paths[i]` is opened.
     @ViewBuilder
     private func chipList(_ labels: [String], _ paths: [String]) -> some View {
         chips(Array(labels.prefix(topN)), Array(paths.prefix(topN)))
         if labels.count > topN {
+            let window = KBNetworkStats.disclosureWindow(count: labels.count, topN: topN, cap: expandCap)
             DisclosureGroup("Show all \(labels.count)") {
-                chips(Array(labels.dropFirst(topN)), Array(paths.dropFirst(topN)))
+                chips(Array(labels[window.shown]), Array(paths[window.shown]))
                     .padding(.top, 4)
+                moreLine(window.hidden)
             }
             .font(DS.sans(11)).foregroundStyle(DS.Accent.ink)
+        }
+    }
+
+    @ViewBuilder
+    private func moreLine(_ hidden: Int) -> some View {
+        if hidden > 0 {
+            Text("…and \(hidden) more").font(DS.sans(11)).foregroundStyle(DS.Ink.p4).padding(.top, 2)
         }
     }
 

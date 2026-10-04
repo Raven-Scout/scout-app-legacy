@@ -147,6 +147,20 @@ struct KBNetworkStatsDisplayTests {
                 == "1 main cluster + 3 islands · largest covers 10 notes")
     }
 
+    /// "Show all" expands at most `cap` more items; the rest become a count,
+    /// so a ~1,300-item list never renders ~1,300 buttons.
+    @Test func disclosureWindowCapsTheExpandedList() {
+        let big = KBNetworkStats.disclosureWindow(count: 1314, topN: 5, cap: 200)
+        #expect(big.shown == 5..<205)
+        #expect(big.hidden == 1109)
+        let small = KBNetworkStats.disclosureWindow(count: 12, topN: 5, cap: 200)
+        #expect(small.shown == 5..<12)
+        #expect(small.hidden == 0)
+        let none = KBNetworkStats.disclosureWindow(count: 3, topN: 5, cap: 200)
+        #expect(none.shown.isEmpty)
+        #expect(none.hidden == 0)
+    }
+
     @Test func healthTitle() {
         #expect(KBNetworkStats.healthTitle(0, singular: "orphaned note", plural: "orphaned notes")
                 == "Orphaned notes: ✓ none")

@@ -5,8 +5,17 @@ import Testing
 @Suite("KBIndex link resolution")
 struct KBIndexResolveTests {
     private let index = KBIndex(
-        stemToPath: ["alex": "knowledge-base/people/alex.md", "people": "knowledge-base/people.md"],
+        stemPaths: ["alex": ["knowledge-base/people/alex.md"], "people": ["knowledge-base/people.md"]],
         outByFile: [:], textByFile: [:], typeByFile: [:], vaultNames: [])
+
+    @Test func pathFormPicksTheRightNoteWhenStemsCollide() {
+        let collided = KBIndex(
+            stemPaths: ["alex": ["knowledge-base/people/alex.md", "knowledge-base/projects/alex.md"]],
+            outByFile: [:], textByFile: [:], typeByFile: [:], vaultNames: [])
+        #expect(collided.resolve("people/alex") == "knowledge-base/people/alex.md")
+        #expect(collided.resolve("projects/alex") == "knowledge-base/projects/alex.md")
+        #expect(collided.resolve("alex") == "knowledge-base/projects/alex.md")   // bare: last in tree order, as before
+    }
 
     @Test func bareStemAnyCase() {
         #expect(index.resolve("alex") == "knowledge-base/people/alex.md")
@@ -67,6 +76,23 @@ struct KBServicePathLinkTests {
         #expect(toAlex.map(\.path) == ["knowledge-base/hub.md"])
         #expect(toAlex.first?.excerpt == "Owner: [[people/alex]].")
         #expect(svc.networkStats().dangling.isEmpty)
+        // Resolved once, at index build time (off the main actor).
+        #expect(svc.index.resolvedOut["knowledge-base/hub.md"] == ["knowledge-base/people/alex.md"])
+        #expect(svc.index.edges.count == 2)
+    }
+
+    @Test func backlinkExcerptIsTheLineWhoseLinkResolves() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kbexcerpt-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let kb = root.appendingPathComponent("knowledge-base")
+        try FileManager.default.createDirectory(at: kb, withIntermediateDirectories: true)
+        try "# Scout".write(to: kb.appendingPathComponent("scout.md"), atomically: true, encoding: .utf8)
+        try "Repo: https://github.com/example-org/scout#readme\nWorks on [[scout]]."
+            .write(to: kb.appendingPathComponent("hub.md"), atomically: true, encoding: .utf8)
+        let svc = KnowledgeBaseService(scoutDirectory: root, fileEvents: NoopFS())
+        await svc.reparseAndWait()
+        #expect(svc.backlinks(for: "knowledge-base/scout.md").first?.excerpt == "Works on [[scout]].")
     }
 }
 
@@ -81,7 +107,7 @@ struct KBDanglingExclusionTests {
     }
 
     @Test func vaultNamesMatchByLastPathComponent() {
-        let index = KBIndex(stemToPath: [:], outByFile: [:], textByFile: [:], typeByFile: [:],
+        let index = KBIndex(stemPaths: [:], outByFile: [:], textByFile: [:], typeByFile: [:],
                             vaultNames: ["action-items-2020-01-05", "chart-x.png"])
         #expect(index.existsInVault("action-items-2020-01-05"))
         #expect(index.existsInVault("action-items/Action-Items-2020-01-05#Morning"))
@@ -102,7 +128,23 @@ struct KBDanglingExclusionTests {
         try "".write(to: root.appendingPathComponent("chart-x.png"), atomically: true, encoding: .utf8)
         try "".write(to: root.appendingPathComponent(".hidden/secret.md"), atomically: true, encoding: .utf8)
         try "".write(to: root.appendingPathComponent("node_modules/dep.md"), atomically: true, encoding: .utf8)
-        #expect(KnowledgeBaseService.vaultFileNames(under: root) == ["fresh-note", "chart-x.png"])
+        #expect(KnowledgeBaseService.vaultFileNames(under: root, skippingMarkdownIn: root.appendingPathComponent("kb"))
+                == ["fresh-note", "chart-x.png"])
+    }
+
+    /// The KB's own notes are the resolver's job; listing them too would hide
+    /// every resolver miss whose stem exists somewhere in the KB.
+    @Test func vaultFileNamesSkipKBMarkdownButKeepOtherKBFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kbvault-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let kb = root.appendingPathComponent("knowledge-base")
+        try FileManager.default.createDirectory(at: kb, withIntermediateDirectories: true)
+        try "".write(to: kb.appendingPathComponent("alex.md"), atomically: true, encoding: .utf8)
+        try "".write(to: kb.appendingPathComponent("chart-x.png"), atomically: true, encoding: .utf8)
+        try "".write(to: root.appendingPathComponent("fresh-note.md"), atomically: true, encoding: .utf8)
+        #expect(KnowledgeBaseService.vaultFileNames(under: root, skippingMarkdownIn: kb)
+                == ["chart-x.png", "fresh-note"])
     }
 }
 
@@ -117,13 +159,19 @@ struct KBServiceDanglingTests {
         let daily = root.appendingPathComponent("action-items")
         try FileManager.default.createDirectory(at: kb, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: daily, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: kb.appendingPathComponent("people"), withIntermediateDirectories: true)
         try "".write(to: daily.appendingPathComponent("action-items-2020-01-05.md"), atomically: true, encoding: .utf8)
-        try "[[action-items-2020-01-05]] [[PROJ-1234]] [[people/ghost]]"
+        try "".write(to: kb.appendingPathComponent("people/alex.md"), atomically: true, encoding: .utf8)
+        // `projects/alex` names a folder alex isn't in: Obsidian leaves it
+        // unresolved, so it is dangling even though an `alex` note exists.
+        try "[[action-items-2020-01-05]] [[PROJ-1234]] [[people/ghost]] [[projects/alex]]"
             .write(to: kb.appendingPathComponent("hub.md"), atomically: true, encoding: .utf8)
 
         let svc = KnowledgeBaseService(scoutDirectory: root, fileEvents: NoopFS())
         await svc.reparseAndWait()
-        #expect(svc.networkStats().dangling
-                == [KBDanglingLink(source: "knowledge-base/hub.md", target: "people/ghost")])
+        #expect(svc.networkStats().dangling == [
+            KBDanglingLink(source: "knowledge-base/hub.md", target: "people/ghost"),
+            KBDanglingLink(source: "knowledge-base/hub.md", target: "projects/alex"),
+        ])
     }
 }
