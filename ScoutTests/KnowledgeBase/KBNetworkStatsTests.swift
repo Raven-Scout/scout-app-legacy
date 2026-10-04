@@ -110,3 +110,35 @@ struct KBNetworkStatsTests {
         #expect(s.byType.allSatisfy { $0.count == 0 })
     }
 }
+
+@Suite("KBNetworkStats display strings")
+struct KBNetworkStatsDisplayTests {
+    private func net(avg: Double = 0, max: Int = 0, clusters: Int = 0, largest: Int = 0) -> KBNetworkStats {
+        KBNetworkStats(noteCount: 0, linkCount: 0, orphans: [], weaklyLinked: [], dangling: [],
+                       islands: [], topHubs: [], avgDegree: avg, maxDegree: max, byType: [],
+                       clusterCount: clusters, largestComponentSize: largest)
+    }
+
+    @Test func degreeSummary() {
+        #expect(net(avg: 8.0 / 7.0, max: 3).degreeSummary == "avg 1.1 · max 3 connections per note")
+        #expect(KBNetworkStats.empty.degreeSummary == "avg 0.0 · max 0 connections per note")
+    }
+
+    @Test func componentsSummary() {
+        #expect(net().componentsSummary == "No linked notes yet")
+        #expect(net(clusters: 1, largest: 4).componentsSummary == "1 main cluster · covers 4 notes")
+        #expect(net(clusters: 2, largest: 4).componentsSummary
+                == "1 main cluster + 1 island · largest covers 4 notes")
+        #expect(net(clusters: 4, largest: 10).componentsSummary
+                == "1 main cluster + 3 islands · largest covers 10 notes")
+    }
+
+    @Test func healthTitle() {
+        #expect(KBNetworkStats.healthTitle(0, singular: "orphaned note", plural: "orphaned notes")
+                == "Orphaned notes: ✓ none")
+        #expect(KBNetworkStats.healthTitle(1, singular: "orphaned note", plural: "orphaned notes")
+                == "1 orphaned note")
+        #expect(KBNetworkStats.healthTitle(5, singular: "orphaned note", plural: "orphaned notes")
+                == "5 orphaned notes")
+    }
+}

@@ -191,3 +191,33 @@ nonisolated struct KBNetworkStats: Equatable {
         byType: KBEntityGroup.allCases.map { KBTypeCount(group: $0, count: 0) },
         clusterCount: 0, largestComponentSize: 0)
 }
+
+extension KBNetworkStats {
+    /// "avg 1.1 · max 3 connections per note".
+    var degreeSummary: String {
+        "avg \(String(format: "%.1f", avgDegree)) · max \(maxDegree) connections per note"
+    }
+
+    /// "1 main cluster + K islands · largest covers M notes", with the
+    /// one-cluster and no-links cases worded on their own.
+    var componentsSummary: String {
+        switch clusterCount {
+        case 0: return "No linked notes yet"
+        case 1: return "1 main cluster · covers \(largestComponentSize) notes"
+        default:
+            let islands = clusterCount - 1
+            return "1 main cluster + \(islands) island\(islands == 1 ? "" : "s")"
+                + " · largest covers \(largestComponentSize) notes"
+        }
+    }
+
+    /// A health row's title: "Orphaned notes: ✓ none", "1 orphaned note",
+    /// "5 orphaned notes".
+    static func healthTitle(_ count: Int, singular: String, plural: String) -> String {
+        switch count {
+        case 0: return plural.prefix(1).uppercased() + plural.dropFirst() + ": ✓ none"
+        case 1: return "1 \(singular)"
+        default: return "\(count) \(plural)"
+        }
+    }
+}
