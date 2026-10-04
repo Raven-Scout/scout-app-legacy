@@ -74,7 +74,13 @@ Before review, this plan's code was applied to scratch worktrees and run there. 
     - `FileWatcherTests.emitsEventOnFileCreation` (a 3-second ceiling), in two runs. One of those runs also failed `ActionItemsIntegrationTests` and `FakeScoutRunIntegrationTests`.
     - `ConnectorHealthHotPathTests.watcherCoalescesAppendBursts` (at most 3 refreshes in a fixed window), in two runs.
 
-    These tests flake on unmodified `main` too: it failed `watcherCoalescesAppendBursts` in one of five runs. They fail more often with this plan's suites added, which bring more main-actor rendering and process launches into the run. Task 10 says how to treat them. Hardening those tests is a separate follow-up.
+    These tests flake on unmodified `main` too: it failed `watcherCoalescesAppendBursts` in one of five runs. They fail more often with this plan's suites added, which bring more main-actor rendering and process launches into the run.
+
+    Both are being fixed outside this plan:
+    - [#117](https://github.com/Raven-Scout/Scout/pull/117), merged 2026-10-03, bounds `watcherCoalescesAppendBursts` relative to the burst (at most `burst / 5`, which is 10) instead of at most 3. In 25 more full runs of this dry run, the test counted 3 or 4 refreshes, so the new bound has margin.
+    - [#123](https://github.com/Raven-Scout/Scout/pull/123), open, gives `FileWatcherTests` and the two FSEvents integration suites a 30-second liveness budget.
+
+    Task 10 says how to treat a failure in these tests.
   - Line coverage was 74.8% locally, against a floor of 70%. Local runs read higher than CI.
   - The files this plan touches build without warnings. The dry run found two, and the code below already fixes them.
 - **Live data, read-only.**
@@ -172,7 +178,7 @@ These are the inputs most likely to hurt a real user that the spec implies but d
 
 - The World view (§6.6). That is plan 4.
 - Archive, rename and group actions; F-4 session ↔ action-item links; a Claude Code `Stop` hook.
-- Widening the timing budgets of the existing tests named in the dry run.
+- Hardening the timing tests named in the dry run. #117 (merged) and #123 do that.
 
 ---
 
@@ -4663,10 +4669,12 @@ Expected:
 - Both runs print `Test run with` about 980 tests and pass.
 - Coverage is at or above `scripts/coverage-floor.txt`.
 
-A failure is a known timing flake only if all of the following hold. Record any flake in the PR description.
-- It is confined to `FileWatcherTests`, `ActionItemsIntegrationTests`, `FakeScoutRunIntegrationTests` or `ConnectorHealthHotPathTests`.
-- That suite passes when run alone.
-- The next full run passes.
+First check whether #123 has merged (`gh pr view 123 --repo Raven-Scout/Scout --json state`), and rebase onto `main` if it has.
+- **With #117 and #123 both on `main`,** no failure is expected in `FileWatcherTests`, `ActionItemsIntegrationTests`, `FakeScoutRunIntegrationTests` or `ConnectorHealthHotPathTests`. Investigate any failure there before going on.
+- **Until #123 merges,** a failure counts as a known timing flake only if all of the following hold. Record any flake in the PR description.
+  - It is confined to `FileWatcherTests`, `ActionItemsIntegrationTests` or `FakeScoutRunIntegrationTests`.
+  - That suite passes when run alone.
+  - The next full run passes.
 
 Any other failure is a bug in this branch.
 
