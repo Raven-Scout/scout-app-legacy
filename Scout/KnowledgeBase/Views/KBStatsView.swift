@@ -12,7 +12,7 @@ struct KBStatsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             healthBlock
-            // insightBlock added in Task 5
+            insightBlock
         }
     }
 
@@ -65,6 +65,32 @@ struct KBStatsView: View {
                     .padding(.top, 4)
                 }
                 .font(DS.sans(11)).foregroundStyle(DS.Accent.ink)
+            }
+        }
+    }
+
+    // MARK: - Insight
+
+    private var insightBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("INSIGHT")
+            Text(stats.degreeSummary).font(DS.sans(12)).foregroundStyle(DS.Ink.p2)
+            Text(stats.componentsSummary).font(DS.sans(12)).foregroundStyle(DS.Ink.p2)
+
+            if !stats.topHubs.isEmpty {
+                Text("Top hubs").font(DS.sans(11, weight: .semibold)).foregroundStyle(DS.Ink.p3)
+                chipList(stats.topHubs.map { "\(KBNode.displayName(forPath: $0.path)) · \($0.degree)" },
+                         stats.topHubs.map(\.path))
+            }
+
+            Text("By type").font(DS.sans(11, weight: .semibold)).foregroundStyle(DS.Ink.p3)
+            FlowLayout(spacing: 10) {
+                ForEach(stats.byType.filter { $0.count > 0 }) { tc in
+                    HStack(spacing: 4) {
+                        Circle().fill(tc.group.color).frame(width: 7, height: 7)
+                        Text("\(tc.group.label) \(tc.count)").font(DS.sans(11)).foregroundStyle(DS.Ink.p2)
+                    }
+                }
             }
         }
     }
