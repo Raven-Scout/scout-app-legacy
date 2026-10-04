@@ -69,3 +69,61 @@ struct KBServicePathLinkTests {
         #expect(svc.networkStats().dangling.isEmpty)
     }
 }
+
+@Suite("KB dangling exclusions")
+struct KBDanglingExclusionTests {
+    @Test func ticketIDs() {
+        #expect(KBIndex.isTicketID("PROJ-1234"))
+        #expect(KBIndex.isTicketID("OPS-7"))
+        #expect(!KBIndex.isTicketID("proj-1234"))                  // lowercase → a note name
+        #expect(!KBIndex.isTicketID("day-1"))
+        #expect(!KBIndex.isTicketID("PROJ-12a"))
+    }
+
+    @Test func vaultNamesMatchByLastPathComponent() {
+        let index = KBIndex(stemToPath: [:], outByFile: [:], textByFile: [:], typeByFile: [:],
+                            vaultNames: ["action-items-2020-01-05", "chart-x.png"])
+        #expect(index.existsInVault("action-items-2020-01-05"))
+        #expect(index.existsInVault("action-items/Action-Items-2020-01-05#Morning"))
+        #expect(index.existsInVault("chart-x.png"))
+        #expect(!index.existsInVault("ghost"))
+        #expect(!index.existsInVault("#Role"))
+    }
+
+    @Test func vaultFileNamesSkipHiddenAndIgnoredDirs() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kbvault-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for dir in ["notes", ".hidden", "node_modules"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(dir),
+                                                    withIntermediateDirectories: true)
+        }
+        try "".write(to: root.appendingPathComponent("notes/fresh-note.md"), atomically: true, encoding: .utf8)
+        try "".write(to: root.appendingPathComponent("chart-x.png"), atomically: true, encoding: .utf8)
+        try "".write(to: root.appendingPathComponent(".hidden/secret.md"), atomically: true, encoding: .utf8)
+        try "".write(to: root.appendingPathComponent("node_modules/dep.md"), atomically: true, encoding: .utf8)
+        #expect(KnowledgeBaseService.vaultFileNames(under: root) == ["fresh-note", "chart-x.png"])
+    }
+}
+
+@MainActor
+@Suite("KnowledgeBaseService dangling links")
+struct KBServiceDanglingTests {
+    @Test func onlyTrulyMissingTargetsAreDangling() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kbdangle-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let kb = root.appendingPathComponent("knowledge-base")
+        let daily = root.appendingPathComponent("action-items")
+        try FileManager.default.createDirectory(at: kb, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: daily, withIntermediateDirectories: true)
+        try "".write(to: daily.appendingPathComponent("action-items-2020-01-05.md"), atomically: true, encoding: .utf8)
+        try "[[action-items-2020-01-05]] [[PROJ-1234]] [[people/ghost]]"
+            .write(to: kb.appendingPathComponent("hub.md"), atomically: true, encoding: .utf8)
+
+        let svc = KnowledgeBaseService(scoutDirectory: root, fileEvents: NoopFS())
+        await svc.reparseAndWait()
+        #expect(svc.networkStats().dangling
+                == [KBDanglingLink(source: "knowledge-base/hub.md", target: "people/ghost")])
+    }
+}

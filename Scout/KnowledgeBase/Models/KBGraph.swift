@@ -178,6 +178,21 @@ extension KBIndex {
         let bare = (path.lowercased() as NSString).deletingPathExtension
         return bare == key || bare.hasSuffix("/" + key) ? path : nil
     }
+
+    /// A `[[PROJ-1234]]`-style issue id. The vault links tickets by id on
+    /// purpose; with no note behind them they are references, not breakage.
+    nonisolated static func isTicketID(_ target: String) -> Bool {
+        target.range(of: #"^[A-Z][A-Z0-9]{1,9}-\d+$"#, options: .regularExpression) != nil
+    }
+
+    /// True when the link names a file elsewhere in the vault (e.g.
+    /// `[[action-items-2026-04-27]]`). Obsidian resolves those, but the
+    /// KB-only index can't, so they mustn't count as dangling.
+    func existsInVault(_ target: String) -> Bool {
+        let key = Self.linkKey(target)
+        guard let name = key.split(separator: "/").last else { return false }
+        return vaultNames.contains(String(name))
+    }
 }
 
 // MARK: - Network stats

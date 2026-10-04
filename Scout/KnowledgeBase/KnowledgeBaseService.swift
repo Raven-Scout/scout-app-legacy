@@ -172,6 +172,23 @@ final class KnowledgeBaseService: ObservableObject {
         return full.hasPrefix(prefix) ? String(full.dropFirst(prefix.count)) : url.lastPathComponent
     }
 
+    /// Lowercased names of every non-hidden file under `scoutDirectory`
+    /// (`.md` by stem, others by full name), skipping `ignoredNames`.
+    /// Filenames only — no file is read.
+    nonisolated static func vaultFileNames(under scoutDirectory: URL) -> Set<String> {
+        guard let walker = FileManager.default.enumerator(
+            at: scoutDirectory, includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        var names = Set<String>()
+        while let url = walker.nextObject() as? URL {
+            if ignoredNames.contains(url.lastPathComponent) { walker.skipDescendants(); continue }
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let name = url.lastPathComponent.lowercased()
+            names.insert(url.pathExtension.lowercased() == "md" ? (name as NSString).deletingPathExtension : name)
+        }
+        return names
+    }
+
     // MARK: - Graph index
 
     /// Build the wikilink index from the current tree: a stem→path map, each
@@ -194,7 +211,8 @@ final class KnowledgeBaseService: ObservableObject {
             typeByFile[file.relativePath] = frontmatterType(text)
         }
         return KBIndex(stemToPath: stemToPath, outByFile: outByFile,
-                       textByFile: textByFile, typeByFile: typeByFile, vaultNames: [])
+                       textByFile: textByFile, typeByFile: typeByFile,
+                       vaultNames: vaultFileNames(under: scoutDirectory))
     }
 
     /// The `type:` value from a note's leading YAML frontmatter (lowercased),
@@ -375,11 +393,14 @@ final class KnowledgeBaseService: ObservableObject {
         let orphans = notes.filter { degree($0) == 0 }.sorted()
         let weaklyLinked = notes.filter { degree($0) == 1 }.sorted()
 
-        // Health: dangling links. `extractWikilinks` already de-dups targets
-        // per note, so each (source, target) appears once.
+        // Health: dangling links — targets that are truly missing. Ticket ids
+        // and files elsewhere in the vault (which Obsidian resolves) don't
+        // count. `extractWikilinks` already de-dups targets per note, so each
+        // (source, target) appears once.
         var dangling: [KBDanglingLink] = []
         for (source, targets) in index.outByFile {
-            for t in targets where index.resolve(t, from: source) == nil {
+            for t in targets where index.resolve(t, from: source) == nil
+                && !KBIndex.isTicketID(t) && !index.existsInVault(t) {
                 dangling.append(KBDanglingLink(source: source, target: t))
             }
         }
