@@ -280,16 +280,22 @@ final class KnowledgeBaseService: ObservableObject {
         return edgeSet
     }
 
+    /// Undirected adjacency over `edges`. Shared by `localGraph(around:)` and
+    /// `networkStats()` so "degree" means the same thing in both.
+    nonisolated static func adjacency(of edges: Set<KBGraphEdge>) -> [String: Set<String>] {
+        var adj: [String: Set<String>] = [:]
+        for e in edges {
+            adj[e.from, default: []].insert(e.to)
+            adj[e.to, default: []].insert(e.from)
+        }
+        return adj
+    }
+
     /// Build the local subgraph centred on `relPath`: BFS over undirected
     /// wikilink edges out to `depth` hops, capped at `maxNodes` by degree.
     func localGraph(around relPath: String, depth: Int = 2, maxNodes: Int = 26) -> KBGraph {
         let edgeSet = undirectedEdges()
-        // Adjacency.
-        var adj: [String: Set<String>] = [:]
-        for e in edgeSet {
-            adj[e.from, default: []].insert(e.to)
-            adj[e.to, default: []].insert(e.from)
-        }
+        let adj = Self.adjacency(of: edgeSet)
         // BFS from center.
         var visited: Set<String> = [relPath]
         var frontier: [String] = [relPath]
