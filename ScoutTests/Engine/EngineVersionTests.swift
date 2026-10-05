@@ -35,4 +35,25 @@ struct EngineVersionTests {
         #expect(!(a < b))
         #expect(!(b < a))
     }
+
+    /// Core `major.minor.patch` ordering is numeric, not lexicographic —
+    /// `"0.9.0" < "0.10.0"` would be false as a plain string compare.
+    @Test func coreVersionsCompareNumericallyNotLexicographically() {
+        #expect(EngineVersion("0.9.0")! < EngineVersion("0.10.0")!)
+        #expect(EngineVersion("0.10.0")! < EngineVersion("1.0.0")!)
+    }
+
+    /// `EngineRelease`/tag strings are `v`-prefixed; `EngineUpgrader.needsUpgrade`
+    /// compares a bare installed version against a possibly `v`-prefixed one.
+    @Test func aLeadingVPrefixParsesAndComparesEqualToTheBareVersion() {
+        #expect(EngineVersion("v0.10.0") == EngineVersion("0.10.0"))
+    }
+
+    /// Non-SemVer-shaped strings fail to parse instead of crashing or
+    /// silently truncating — `EngineUpgrader` relies on this `nil` to treat
+    /// an unparsable manifest version as untrusted (Ruling 58).
+    @Test func malformedOrTooShortStringsFailToParse() {
+        #expect(EngineVersion("nope") == nil)
+        #expect(EngineVersion("1.2") == nil)
+    }
 }
