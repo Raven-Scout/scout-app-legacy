@@ -6,7 +6,10 @@
 > [`apps/macos/`](https://github.com/Raven-Scout/Scout/tree/main/apps/macos), alongside the plugin and engine.
 > File new issues and pull requests there, and get releases from
 > [Raven-Scout/Scout releases](https://github.com/Raven-Scout/Scout/releases).
-> This repo is kept for history only; issue and PR numbers here (`#N`) don't match the same numbers in the monorepo.
+> This repo is kept for history only. A `#N` in this repo's history means an issue or PR **here**, not the
+> same number in the monorepo. The issues still open at the move were transferred to
+> Raven-Scout/Scout [#282](https://github.com/Raven-Scout/Scout/issues/282)–[#296](https://github.com/Raven-Scout/Scout/issues/296),
+> and the open PRs continued as Raven-Scout/Scout [#297](https://github.com/Raven-Scout/Scout/pull/297)–[#300](https://github.com/Raven-Scout/Scout/pull/300).
 
 A macOS companion app for the [Scout](https://github.com/Raven-Scout/scout-plugin) Claude Code plugin.
 
@@ -23,7 +26,7 @@ Scout is an autonomous knowledge-management and daily-briefing system that runs 
 
 ## Install
 
-Scout.app sits on top of the Scout engine, so set up the engine first. (Making the app install the engine for you is on the roadmap: [#115](https://github.com/Raven-Scout/Scout/issues/115).)
+Scout.app sits on top of the Scout engine, so set up the engine first. (Making the app install the engine for you is on the roadmap: [Raven-Scout/Scout#296](https://github.com/Raven-Scout/Scout/issues/296).)
 
 **You need:** a Mac on macOS 13+, a paid Claude plan (Max recommended), and [Claude Code](https://docs.claude.com/claude-code) installed and signed in (run `claude` once in Terminal). Turn on the tools you want Scout to read at [claude.ai/settings/connectors](https://claude.ai/settings/connectors) — Slack is strongly recommended, since Scout's daily summary arrives as a Slack DM. No Homebrew or Python needed.
 
