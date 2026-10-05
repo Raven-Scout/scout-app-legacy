@@ -1,5 +1,13 @@
 # Scout.app
 
+> [!WARNING]
+> **This repository is no longer maintained.** The macOS app now lives in the Scout monorepo at
+> [`Raven-Scout/Scout`](https://github.com/Raven-Scout/Scout), under
+> [`apps/macos/`](https://github.com/Raven-Scout/Scout/tree/main/apps/macos), alongside the plugin and engine.
+> File new issues and pull requests there, and get releases from
+> [Raven-Scout/Scout releases](https://github.com/Raven-Scout/Scout/releases).
+> This repo is kept for history only; issue and PR numbers here (`#N`) don't match the same numbers in the monorepo.
+
 A macOS companion app for the [Scout](https://github.com/Raven-Scout/scout-plugin) Claude Code plugin.
 
 Scout is an autonomous knowledge-management and daily-briefing system that runs as scheduled Claude Code sessions. The plugin does the work; this app gives you a native interface on top of whatever Scout produces in `~/Scout/`:
